@@ -22,6 +22,7 @@
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.18.3",
     "recharts": "^3.10.1",
+    "swr": "^2.5.1",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {

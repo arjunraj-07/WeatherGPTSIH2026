@@ -8,6 +8,7 @@ const resources = {
       forecast: 'Forecast',
       alerts: 'Alerts',
       maps: 'Maps',
+      aviation: 'Aviation',
       climate: 'Climate Trends',
       advisories: 'Advisories',
       settings: 'Settings',
@@ -17,10 +18,11 @@ const resources = {
       listening: 'Listening',
       noActiveWarnings: 'No active warnings',
       chat: 'Chat',
+      askWeather: 'Ask WeatherGPT',
       home: 'Home',
       more: 'More',
       languageSelection: 'Language Selection',
-    }
+    },
   },
   hi: {
     translation: {
@@ -28,6 +30,7 @@ const resources = {
       forecast: 'पूर्वानुमान',
       alerts: 'अलर्ट',
       maps: 'नक्शे',
+      aviation: 'विमानन',
       climate: 'जलवायु रुझान',
       advisories: 'सलाह',
       settings: 'सेटिंग्स',
@@ -37,10 +40,11 @@ const resources = {
       listening: 'सुन रहा है',
       noActiveWarnings: 'कोई सक्रिय चेतावनी नहीं',
       chat: 'चैट',
+      askWeather: 'WeatherGPT से पूछें',
       home: 'होम',
       more: 'अधिक',
       languageSelection: 'भाषा चयन',
-    }
+    },
   },
   ta: {
     translation: {
@@ -48,6 +52,7 @@ const resources = {
       forecast: 'முன்னறிவிப்பு',
       alerts: 'எச்சரிக்கைகள்',
       maps: 'வரைபடங்கள்',
+      aviation: 'விமான வானிலை',
       climate: 'காலநிலை போக்குகள்',
       advisories: 'ஆலோசனைகள்',
       settings: 'அமைப்புகள்',
@@ -57,22 +62,25 @@ const resources = {
       listening: 'கேட்கிறது',
       noActiveWarnings: 'எச்சரிக்கைகள் ஏதுமில்லை',
       chat: 'அரட்டை',
+      askWeather: 'WeatherGPT-ஐ கேளுங்கள்',
       home: 'முகப்பு',
       more: 'மேலும்',
       languageSelection: 'மொழி தேர்வு',
-    }
-  }
+    },
+  },
 };
 
-i18n
+const savedLanguage = typeof window === 'undefined' ? 'en' : localStorage.getItem('language');
+const initialLanguage = savedLanguage && ['en', 'hi', 'ta'].includes(savedLanguage) ? savedLanguage : 'en';
+
+void i18n
   .use(initReactI18next)
   .init({
     resources,
-    lng: 'en',
+    lng: initialLanguage,
     fallbackLng: 'en',
-    interpolation: {
-      escapeValue: false, // react already safes from xss
-    }
+    supportedLngs: ['en', 'hi', 'ta'],
+    interpolation: { escapeValue: false },
   });
 
 export default i18n;

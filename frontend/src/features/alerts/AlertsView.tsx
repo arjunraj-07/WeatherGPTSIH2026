@@ -1,151 +1,133 @@
-import { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import useSWR from 'swr';
+import { AlertTriangle, Check, CheckCircle2, ChevronRight, Clock3, MapPin, ShieldAlert, X } from 'lucide-react';
 import { AlertService } from '../../services/api';
+import { mockAlerts } from '../../data/mockData';
 import type { WeatherAlert } from '../../types/models';
-import { AlertTriangle, Clock, MapPin, CheckCircle, Info } from 'lucide-react';
-import { clsx } from 'clsx';
+import { cn, severityClass, severityOrder } from '../../lib/weather';
+
+type StatusFilter = 'Active' | 'Resolved';
+type SeverityFilter = WeatherAlert['severity'] | 'All';
 
 export default function AlertsView() {
-  const { t } = useTranslation();
-  const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('Active');
+  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('All');
   const [selectedAlert, setSelectedAlert] = useState<WeatherAlert | null>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const { data: alerts = mockAlerts, error, isLoading, mutate } = useSWR('alerts-page', () => AlertService.getAlerts(), {
+    fallbackData: mockAlerts,
+    revalidateOnFocus: false,
+  });
 
-  useEffect(() => {
-    AlertService.getAlerts().then(a => {
-      setAlerts(a);
-      setLoading(false);
-    });
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="animate-pulse space-y-4 max-w-3xl mx-auto">
-        <div className="h-32 bg-slate-200 dark:bg-navy-800 rounded-2xl"></div>
-        <div className="h-32 bg-slate-200 dark:bg-navy-800 rounded-2xl"></div>
-      </div>
-    );
-  }
-
-  if (alerts.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[60vh] text-center max-w-md mx-auto">
-        <div className="w-20 h-20 bg-green-50 dark:bg-green-900/20 rounded-full flex items-center justify-center mb-6">
-          <CheckCircle className="w-10 h-10 text-green-500" />
-        </div>
-        <h2 className="text-2xl font-bold mb-2">No Active Alerts</h2>
-        <p className="text-slate-500 dark:text-slate-400">
-          There are no severe weather warnings or alerts for your monitored areas at this time.
-        </p>
-      </div>
-    );
-  }
-
-  const getSeverityStyle = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case 'extreme': return 'bg-alert-extreme/10 border-alert-extreme text-alert-extreme';
-      case 'severe': return 'bg-alert-severe/10 border-alert-severe text-alert-severe';
-      case 'moderate': return 'bg-alert-moderate/10 border-alert-moderate text-alert-moderate';
-      default: return 'bg-alert-minor/10 border-alert-minor text-alert-minor';
-    }
+  const counts = useMemo(() => Object.fromEntries(severityOrder.map((severity) => [severity, alerts.filter((alert) => alert.status === statusFilter && alert.severity === severity).length])) as Record<WeatherAlert['severity'], number>, [alerts, statusFilter]);
+  const filtered = alerts.filter((alert) => alert.status === statusFilter && (severityFilter === 'All' || alert.severity === severityFilter));
+  const statusCounts = {
+    Active: alerts.filter((alert) => alert.status === 'Active').length,
+    Resolved: alerts.filter((alert) => alert.status === 'Resolved').length,
   };
 
+  function openAlert(alert: WeatherAlert) {
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    setSelectedAlert(alert);
+  }
+
+  function closeAlert() {
+    setSelectedAlert(null);
+    window.requestAnimationFrame(() => previousFocusRef.current?.focus());
+  }
+
+  useEffect(() => {
+    if (!selectedAlert) return undefined;
+    closeRef.current?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeAlert();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [selectedAlert]);
+
+  if (isLoading && alerts.length === 0) {
+    return <div className="alerts-skeleton" role="status" aria-label="Loading weather alerts">{[0, 1, 2].map((item) => <div className="skeleton" key={item} />)}</div>;
+  }
+
   return (
-    <div className="max-w-3xl mx-auto space-y-6 pb-10 relative">
-      <h2 className="text-2xl font-bold mb-6">{t('alerts')}</h2>
-
-      {alerts.map(alert => (
-        <div 
-          key={alert.id} 
-          onClick={() => setSelectedAlert(alert)}
-          className={clsx(
-            "bg-white dark:bg-navy-900 rounded-2xl p-5 shadow-sm border-l-4 cursor-pointer card-hover",
-            alert.severity.toLowerCase() === 'extreme' ? 'border-alert-extreme' :
-            alert.severity.toLowerCase() === 'severe' ? 'border-alert-severe' :
-            alert.severity.toLowerCase() === 'moderate' ? 'border-alert-moderate' : 'border-alert-minor'
-          )}
-        >
-          <div className="flex justify-between items-start mb-3">
-            <h3 className="font-bold text-lg">{alert.type}</h3>
-            <span className={clsx("text-xs font-bold uppercase px-3 py-1 rounded-full", getSeverityStyle(alert.severity))}>
-              {alert.severity}
-            </span>
-          </div>
-          
-          <div className="flex flex-col space-y-2 text-sm text-slate-600 dark:text-slate-400">
-            <div className="flex items-center">
-              <MapPin className="w-4 h-4 mr-2" />
-              {alert.location}
-            </div>
-            <div className="flex items-center">
-              <Clock className="w-4 h-4 mr-2" />
-              {alert.time}
-            </div>
-          </div>
-          
-          <p className="mt-4 text-sm line-clamp-2">{alert.description}</p>
+    <div className="alerts-view">
+      <header className="page-heading alerts-heading">
+        <div><span className="eyebrow">Safety before decoration</span><h1>Weather alert centre</h1><p>Scan active hazards by severity, review the affected area and read the source guidance without distraction.</p></div>
+        <div className="alert-status-switch" role="group" aria-label="Alert status">
+          {(['Active', 'Resolved'] as const).map((status) => <button key={status} type="button" aria-pressed={statusFilter === status} onClick={() => { setStatusFilter(status); setSeverityFilter('All'); }}>{status}<span>{statusCounts[status]}</span></button>)}
         </div>
-      ))}
+      </header>
 
-      {/* Modal for details */}
-      {selectedAlert && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-navy-900 rounded-3xl p-6 md:p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl">
-            <div className="flex justify-between items-start mb-6">
-              <div className="flex items-center space-x-3">
-                <AlertTriangle className={clsx(
-                  "w-8 h-8",
-                  selectedAlert.severity.toLowerCase() === 'extreme' ? 'text-alert-extreme' :
-                  selectedAlert.severity.toLowerCase() === 'severe' ? 'text-alert-severe' :
-                  selectedAlert.severity.toLowerCase() === 'moderate' ? 'text-alert-moderate' : 'text-alert-minor'
-                )} />
-                <h3 className="text-2xl font-bold">{selectedAlert.type}</h3>
-              </div>
-              <button 
-                onClick={() => setSelectedAlert(null)}
-                className="p-2 hover:bg-slate-100 dark:hover:bg-navy-800 rounded-full"
-              >
-                &times;
+      {error && <div className="inline-error" role="status"><AlertTriangle className="h-4 w-4" /><span>Alerts could not refresh. Showing the latest available set.</span><button type="button" onClick={() => void mutate()}>Retry</button></div>}
+
+      <section className="severity-filter" aria-labelledby="severity-filter-title">
+        <div><span className="eyebrow">Filter the signal</span><h2 id="severity-filter-title">Severity</h2></div>
+        <div role="group" aria-label="Filter by severity">
+          <button type="button" aria-pressed={severityFilter === 'All'} onClick={() => setSeverityFilter('All')}><span className="severity-filter__all" />All<strong>{statusCounts[statusFilter]}</strong></button>
+          {severityOrder.map((severity) => (
+            <button type="button" key={severity} aria-pressed={severityFilter === severity} onClick={() => setSeverityFilter(severity)}><span className={cn('severity-filter__dot', severityClass(severity))} />{severity}<strong>{counts[severity]}</strong></button>
+          ))}
+        </div>
+      </section>
+
+      {filtered.length > 0 ? (
+        <section className="alert-list" aria-label={`${statusFilter} weather alerts`}>
+          {filtered.map((alert) => (
+            <article key={alert.id} className={cn('alert-card', severityClass(alert.severity))}>
+              <button type="button" className="alert-card__button" onClick={() => openAlert(alert)} aria-label={`View ${alert.severity} alert: ${alert.type}`}>
+                <span className="alert-card__signal"><AlertTriangle className="h-6 w-6" /><small>{alert.severity}</small></span>
+                <span className="alert-card__content">
+                  <span className="alert-card__topline"><small>{alert.status} · {alert.source}</small><strong>{alert.time}</strong></span>
+                  <span className="alert-card__title">{alert.type}</span>
+                  <span className="alert-card__location"><MapPin className="h-4 w-4" />{alert.location}</span>
+                  <span className="alert-card__description">{alert.description}</span>
+                </span>
+                <span className="alert-card__open">View details <ChevronRight className="h-4 w-4" /></span>
               </button>
-            </div>
-
-            <div className="space-y-6">
-              <div className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-navy-800 p-3 rounded-xl">
-                <MapPin className="w-5 h-5 flex-shrink-0" />
-                <span>{selectedAlert.location}</span>
-              </div>
-              <div className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-navy-800 p-3 rounded-xl">
-                <Clock className="w-5 h-5 flex-shrink-0" />
-                <span>{selectedAlert.time}</span>
-              </div>
-
-              <div>
-                <h4 className="font-semibold mb-2">Description</h4>
-                <p className="text-slate-700 dark:text-slate-300 text-sm leading-relaxed">{selectedAlert.description}</p>
-              </div>
-
-              <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800/50">
-                <div className="flex items-center space-x-2 text-blue-800 dark:text-blue-300 font-semibold mb-2">
-                  <Info className="w-5 h-5" />
-                  <h4>Recommended Action</h4>
-                </div>
-                <p className="text-blue-900/80 dark:text-blue-200/80 text-sm">{selectedAlert.recommendedAction}</p>
-              </div>
-
-              <div className="text-xs text-center text-slate-400 pt-4 border-t border-slate-100 dark:border-navy-800">
-                Source: {selectedAlert.source}
-              </div>
-            </div>
-            
-            <button 
-              onClick={() => setSelectedAlert(null)}
-              className="w-full mt-8 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-semibold py-3 rounded-xl hover:opacity-90 transition-opacity"
-            >
-              Close
-            </button>
-          </div>
-        </div>
+            </article>
+          ))}
+        </section>
+      ) : (
+        <section className="atmo-panel empty-state">
+          <span className="empty-state__icon">{statusFilter === 'Active' ? <CheckCircle2 className="h-7 w-7" /> : <Clock3 className="h-7 w-7" />}</span>
+          <h2>{severityFilter === 'All' ? `No ${statusFilter.toLowerCase()} alerts` : `No ${severityFilter.toLowerCase()} ${statusFilter.toLowerCase()} alerts`}</h2>
+          <p>{statusFilter === 'Active' ? 'There are no matching warnings in the monitored demo areas.' : 'Resolved alerts will appear here when supplied by the service.'}</p>
+          {severityFilter !== 'All' && <button type="button" className="action-button action-button--quiet" onClick={() => setSeverityFilter('All')}>Clear severity filter</button>}
+        </section>
       )}
+
+      <AnimatePresence>
+        {selectedAlert && (
+          <div className="alert-dialog-layer">
+            <motion.button type="button" className="alert-dialog-backdrop" aria-label="Close alert details" onClick={closeAlert} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+            <motion.section
+              className={cn('alert-dialog', severityClass(selectedAlert.severity))}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="alert-dialog-title"
+              initial={{ opacity: 0, y: 28, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 24, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <div className="alert-dialog__header">
+                <span className="alert-dialog__icon"><ShieldAlert className="h-6 w-6" /></span>
+                <div><span>{selectedAlert.severity} · {selectedAlert.status}</span><h2 id="alert-dialog-title">{selectedAlert.type}</h2></div>
+                <button ref={closeRef} type="button" className="icon-button" onClick={closeAlert} aria-label="Close alert details"><X className="h-5 w-5" /></button>
+              </div>
+              <div className="alert-dialog__meta"><span><MapPin className="h-4 w-4" />{selectedAlert.location}</span><span><Clock3 className="h-4 w-4" />{selectedAlert.time}</span></div>
+              <div className="alert-dialog__body">
+                <section><span className="eyebrow">What is happening</span><p>{selectedAlert.description}</p></section>
+                <section className="action-checklist"><span className="eyebrow">What should I do?</span><div>{selectedAlert.recommendedAction.split(/(?<=[.!?])\s+/).filter(Boolean).map((action, index) => <p key={`${index}-${action}`}><Check className="h-4 w-4" /><span>{action}</span></p>)}</div></section>
+              </div>
+              <footer className="alert-dialog__footer"><span>Source</span><strong>{selectedAlert.source}</strong><small>Guidance shown exactly as supplied by this demo record.</small></footer>
+            </motion.section>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

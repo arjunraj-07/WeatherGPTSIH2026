@@ -1,271 +1,341 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Mic, MicOff, Send, X, Volume2, VolumeX, AlertTriangle, CloudRain, ShieldAlert } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  Clipboard,
+  CloudRain,
+  Leaf,
+  Mic,
+  MicOff,
+  Send,
+  Sparkles,
+  Trash2,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react';
 import type { ChatMessage } from '../../types/models';
-import { clsx } from 'clsx';
+import { mockAlerts, mockAdvisories, mockForecastData, mockWeatherData } from '../../data/mockData';
+import WeatherIcon from '../../components/WeatherIcon';
+import { usePreferences } from '../../hooks/usePreferences';
+import { celsiusToDisplay, cn, severityClass, temperatureSuffix } from '../../lib/weather';
 
 const SUGGESTIONS = [
-  "Will it rain tomorrow?",
-  "Is there any cyclone warning?",
-  "Should I irrigate my crops?",
-  "Show me the forecast for Chennai"
+  'Will it rain tomorrow?',
+  'Is there any cyclone warning?',
+  'Should I irrigate my crops?',
+  'Show me the current weather',
 ];
 
+interface RecognitionResultEvent {
+  results: { [index: number]: { [index: number]: { transcript: string } } };
+}
+
+interface RecognitionErrorEvent {
+  error: string;
+}
+
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: RecognitionResultEvent) => void) | null;
+  onerror: ((event: RecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+type SpeechWindow = Window & typeof globalThis & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
+
 function generateId() {
-  return Math.random().toString(36).substring(2, 9);
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function timestamp() {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function welcomeMessage(): ChatMessage {
+  return {
+    id: 'welcome',
+    role: 'assistant',
+    content: 'Hello. I am WeatherGPT in demo mode. Ask about the simulated Chennai weather, forecast, alerts or sector advisories.',
+    timestamp: timestamp(),
+    type: 'text',
+  };
+}
+
+function mockReply(prompt: string, temperatureUnit: 'c' | 'f'): ChatMessage {
+  const query = prompt.toLowerCase();
+  const suffix = temperatureSuffix(temperatureUnit);
+  if (query.includes('rain tomorrow') || query.includes('forecast')) {
+    const forecastDay = mockForecastData.daily[1] ?? mockForecastData.daily[0];
+    return {
+      id: generateId(), role: 'assistant', timestamp: timestamp(), type: 'forecast_card', data: forecastDay,
+      content: `The demonstration forecast shows rain as possible tomorrow, with a high of ${celsiusToDisplay(forecastDay?.maxTemp ?? 32, temperatureUnit)}${suffix}.`,
+    };
+  }
+  if (query.includes('cyclone') || query.includes('warning') || query.includes('alert')) {
+    return {
+      id: generateId(), role: 'assistant', timestamp: timestamp(), type: 'alert_card', data: mockAlerts[0],
+      content: 'The demo record contains an active severe weather alert for Chennai and nearby monitored areas.',
+    };
+  }
+  if (query.includes('irrigate') || query.includes('crop') || query.includes('agriculture')) {
+    return {
+      id: generateId(), role: 'assistant', timestamp: timestamp(), type: 'advisory_card', data: mockAdvisories[0],
+      content: 'The demonstration agriculture advisory suggests postponing irrigation because heavier rainfall is expected later.',
+    };
+  }
+  if (query.includes('weather') || query.includes('current') || query.includes('chennai')) {
+    return {
+      id: generateId(), role: 'assistant', timestamp: timestamp(), type: 'weather_card', data: mockWeatherData,
+      content: `Chennai is represented as ${celsiusToDisplay(mockWeatherData.currentTemp, temperatureUnit)}${suffix} and partly cloudy in this self-contained demonstration.`,
+    };
+  }
+  return {
+    id: generateId(), role: 'assistant', timestamp: timestamp(), type: 'text',
+    content: 'I am operating in demo mode and can answer questions about the simulated Chennai weather, forecast, alerts and advisories.',
+  };
+}
+
+function StructuredResponse({ message }: { message: ChatMessage }) {
+  const { temperatureUnit } = usePreferences();
+  const suffix = temperatureSuffix(temperatureUnit);
+  if (message.type === 'weather_card') {
+    const weather = message.data ?? mockWeatherData;
+    return (
+      <div className="chat-data-card chat-data-card--weather">
+        <span className="chat-data-card__icon"><WeatherIcon icon={weather.icon} condition={weather.condition} className="h-7 w-7" /></span>
+        <span><small>Current · Demo data</small><strong>{celsiusToDisplay(weather.currentTemp, temperatureUnit)}{suffix} · {weather.condition}</strong><p>{weather.location.city}, {weather.location.state} · Feels like {celsiusToDisplay(weather.feelsLike, temperatureUnit)}{suffix}</p></span>
+      </div>
+    );
+  }
+  if (message.type === 'forecast_card') {
+    const day = message.data ?? mockForecastData.daily[0];
+    return (
+      <div className="chat-data-card chat-data-card--forecast">
+        <span className="chat-data-card__icon"><CloudRain className="h-7 w-7" /></span>
+        <span><small>{day?.day ?? 'Tomorrow'} · Demo forecast</small><strong>{celsiusToDisplay(day?.minTemp ?? 27, temperatureUnit)}—{celsiusToDisplay(day?.maxTemp ?? 32, temperatureUnit)}{suffix} · {day?.condition ?? 'Rain showers'}</strong><p>{day?.precipitationProb ?? 30}% precipitation probability</p></span>
+      </div>
+    );
+  }
+  if (message.type === 'alert_card') {
+    const alert = message.data ?? mockAlerts[0];
+    return (
+      <div className={cn('chat-data-card chat-data-card--alert', severityClass(alert?.severity ?? 'Severe'))}>
+        <span className="chat-data-card__icon"><AlertTriangle className="h-7 w-7" /></span>
+        <span><small>{alert?.severity ?? 'Severe'} alert · Demo record</small><strong>{alert?.type ?? 'Heavy rainfall'}</strong><p>{alert?.location ?? 'Chennai and Kanchipuram Districts'}</p></span>
+      </div>
+    );
+  }
+  if (message.type === 'advisory_card') {
+    const advisory = message.data ?? mockAdvisories[0];
+    return (
+      <div className="chat-data-card chat-data-card--advisory">
+        <span className="chat-data-card__icon"><Leaf className="h-7 w-7" /></span>
+        <span><small>{advisory?.category ?? 'Agriculture'} · Demo guidance</small><strong>{advisory?.title ?? 'Crop irrigation advisory'}</strong><p>{advisory?.location ?? 'Chennai District'}</p></span>
+      </div>
+    );
+  }
+  return null;
 }
 
 export default function ChatView() {
   const { t, i18n } = useTranslation();
-  const [messages, setMessages] = useState<ChatMessage[]>([{
-    id: 'welcome',
-    role: 'assistant',
-    content: 'Hello! I am WeatherGPT. How can I help you with weather, forecasts, alerts, or advisories today?',
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    type: 'text'
-  }]);
+  const { temperatureUnit } = usePreferences();
+  const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage()]);
   const [input, setInput] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechMuted, setSpeechMuted] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const timersRef = useRef<number[]>([]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, isThinking]);
 
   useEffect(() => {
-    // Initialize Speech Recognition if available
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = i18n.language === 'en' ? 'en-US' : i18n.language === 'hi' ? 'hi-IN' : 'ta-IN';
-      
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInput(transcript);
-        setIsListening(false);
-      };
-      
-      recognition.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
+    const speechWindow = window as SpeechWindow;
+    const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      recognitionRef.current = null;
+      return undefined;
     }
+
+    const recognition = new Recognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = i18n.language === 'hi' ? 'hi-IN' : i18n.language === 'ta' ? 'ta-IN' : 'en-US';
+    recognition.onresult = (event) => {
+      setInput(event.results[0]?.[0]?.transcript ?? '');
+      setStatus('Voice input captured. Review it before sending.');
+      setIsListening(false);
+    };
+    recognition.onerror = (event) => {
+      setStatus(`Voice input stopped: ${event.error}. You can continue by typing.`);
+      setIsListening(false);
+    };
+    recognition.onend = () => setIsListening(false);
+    recognitionRef.current = recognition;
+
+    return () => {
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.stop();
+      recognitionRef.current = null;
+    };
   }, [i18n.language]);
 
-  const toggleListen = () => {
-    if (!recognitionRef.current) {
-      alert("Speech recognition is not supported in this browser.");
+  useEffect(() => () => {
+    timersRef.current.forEach((timer) => window.clearTimeout(timer));
+    window.speechSynthesis?.cancel();
+  }, []);
+
+  function toggleListen() {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      setStatus('Speech recognition is not supported in this browser. The text composer remains available.');
       return;
     }
-    if (isListening) {
-      recognitionRef.current.stop();
-    } else {
-      recognitionRef.current.start();
+    if (isListening) recognition.stop();
+    else {
+      setStatus('Listening for a weather question…');
       setIsListening(true);
+      recognition.start();
     }
-  };
+  }
 
-  const speak = (text: string) => {
-    if (speechMuted || !('speechSynthesis' in window)) return;
-    
+  function speak(text: string) {
+    if (speechMuted) return;
+    if (!('speechSynthesis' in window)) {
+      setStatus('Speech playback is not supported in this browser.');
+      return;
+    }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = i18n.language === 'en' ? 'en-US' : i18n.language === 'hi' ? 'hi-IN' : 'ta-IN';
-    
+    utterance.lang = i18n.language === 'hi' ? 'hi-IN' : i18n.language === 'ta' ? 'ta-IN' : 'en-US';
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const stopSpeaking = () => {
-    window.speechSynthesis.cancel();
-    setIsSpeaking(false);
-  };
-
-  const handleSend = (text: string = input) => {
-    if (!text.trim()) return;
-    
-    const newMsg: ChatMessage = {
-      id: generateId(),
-      role: 'user',
-      content: text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      type: 'text'
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      setStatus('Speech playback could not be completed.');
     };
-    
-    setMessages(prev => [...prev, newMsg]);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function stopSpeaking() {
+    window.speechSynthesis?.cancel();
+    setIsSpeaking(false);
+  }
+
+  function sendMessage(text = input) {
+    const trimmed = text.trim();
+    if (!trimmed || isThinking) return;
+    const userMessage: ChatMessage = { id: generateId(), role: 'user', content: trimmed, timestamp: timestamp(), type: 'text' };
+    setMessages((current) => [...current, userMessage]);
     setInput('');
-    
-    // Simple Intent Matcher for Mock Mode
-    setTimeout(() => {
-      let responseContent = "I'm sorry, I don't have information on that in demo mode.";
-      let type: 'text' | 'weather_card' | 'alert_card' | 'forecast_card' | 'advisory_card' = 'text';
-      let data = null;
-      
-      const q = text.toLowerCase();
-      if (q.includes('rain tomorrow') || q.includes('forecast')) {
-        responseContent = "Yes, rain showers are expected tomorrow with a high of 32°C and a 30% chance of precipitation.";
-        type = 'forecast_card';
-      } else if (q.includes('cyclone') || q.includes('warning') || q.includes('alert')) {
-        responseContent = "There is an active severe weather alert for Heavy Rainfall in Chennai and Kanchipuram Districts.";
-        type = 'alert_card';
-      } else if (q.includes('irrigate') || q.includes('crop') || q.includes('agriculture')) {
-        responseContent = "Based on the heavy rainfall expected later today, you should consider postponing irrigation to prevent water stagnation.";
-        type = 'advisory_card';
-      } else if (q.includes('weather') || q.includes('current')) {
-        responseContent = "It is currently 31°C and Partly Cloudy in Chennai.";
-        type = 'weather_card';
-      } else {
-        responseContent = "I am operating in demo mode and can only answer queries about the simulated weather, alerts, and advisories for Chennai.";
-      }
-      
-      const reply: ChatMessage = {
-        id: generateId(),
-        role: 'assistant',
-        content: responseContent,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        type,
-        data
-      };
-      
-      setMessages(prev => [...prev, reply]);
-      speak(responseContent);
-    }, 600);
-  };
+    setStatus(null);
+    setIsThinking(true);
+
+    const timer = window.setTimeout(() => {
+      const reply = mockReply(trimmed, temperatureUnit);
+      setMessages((current) => [...current, reply]);
+      setIsThinking(false);
+      speak(reply.content);
+      timersRef.current = timersRef.current.filter((item) => item !== timer);
+    }, 650);
+    timersRef.current.push(timer);
+  }
+
+  function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault();
+  }
+
+  async function copyMessage(message: ChatMessage) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopiedId(message.id);
+      setStatus('Response copied to the clipboard.');
+      const timer = window.setTimeout(() => {
+        setCopiedId((current) => current === message.id ? null : current);
+        timersRef.current = timersRef.current.filter((item) => item !== timer);
+      }, 1600);
+      timersRef.current.push(timer);
+    } catch {
+      setStatus('Clipboard access is unavailable in this browser.');
+    }
+  }
+
+  function clearChat() {
+    stopSpeaking();
+    timersRef.current.forEach((timer) => window.clearTimeout(timer));
+    timersRef.current = [];
+    setMessages([welcomeMessage()]);
+    setIsThinking(false);
+    setStatus('Conversation cleared.');
+  }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] max-w-4xl mx-auto bg-white dark:bg-navy-900 rounded-3xl shadow-sm border border-slate-100 dark:border-navy-800 overflow-hidden relative">
-      
-      {/* Header */}
-      <div className="bg-primary-600 text-white px-6 py-4 flex justify-between items-center z-10">
-        <div>
-          <h2 className="font-bold text-lg">Ask WeatherGPT</h2>
-          <div className="text-sm text-primary-100 flex items-center">
-            <span className="w-2 h-2 rounded-full bg-green-400 mr-2 animate-pulse"></span>
-            Online (Demo Mode)
-          </div>
+    <section className="chat-workspace" aria-labelledby="chat-title">
+      <header className="chat-header">
+        <div className="chat-header__identity">
+          <span className="chat-orb"><Sparkles className="h-5 w-5" /></span>
+          <div><span className="eyebrow">Calm weather assistance</span><h1 id="chat-title">Ask WeatherGPT</h1></div>
         </div>
-        <div className="flex space-x-2">
-          {isSpeaking && (
-            <button onClick={stopSpeaking} className="p-2 hover:bg-white/10 rounded-full" title="Stop speaking">
-              <X className="w-5 h-5" />
-            </button>
-          )}
-          <button onClick={() => setSpeechMuted(!speechMuted)} className="p-2 hover:bg-white/10 rounded-full" title="Toggle TTS">
-            {speechMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+        <div className="chat-header__actions">
+          <span className="chat-demo-badge"><i />Demo mode</span>
+          {isSpeaking && <button type="button" className="icon-button" onClick={stopSpeaking} aria-label="Stop speaking" title="Stop speaking"><X className="h-5 w-5" /></button>}
+          <button type="button" className="icon-button" onClick={() => { setSpeechMuted((value) => !value); stopSpeaking(); }} aria-label={speechMuted ? 'Enable spoken responses' : 'Mute spoken responses'} title={speechMuted ? 'Enable spoken responses' : 'Mute spoken responses'}>
+            {speechMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
           </button>
+          <button type="button" className="icon-button" onClick={clearChat} aria-label="Clear conversation" title="Clear conversation"><Trash2 className="h-5 w-5" /></button>
         </div>
-      </div>
+      </header>
 
-      {/* Message History */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-        {messages.map(msg => (
-          <div key={msg.id} className={clsx("flex", msg.role === 'user' ? "justify-end" : "justify-start")}>
-            <div className={clsx(
-              "max-w-[85%] sm:max-w-[75%] rounded-2xl p-4 shadow-sm relative group",
-              msg.role === 'user' 
-                ? "bg-primary-600 text-white rounded-tr-none" 
-                : "bg-slate-50 dark:bg-navy-800 border border-slate-100 dark:border-navy-700 rounded-tl-none"
-            )}>
-              <p className="leading-relaxed">{msg.content}</p>
-              
-              {/* Dummy rendering for structured cards */}
-              {msg.type === 'alert_card' && (
-                <div className="mt-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3 flex items-start space-x-3 text-red-900 dark:text-red-200">
-                   <AlertTriangle className="w-5 h-5 flex-shrink-0 text-red-500" />
-                   <div className="text-sm font-medium">Severe Rainfall Warning Active</div>
-                </div>
-              )}
-              {msg.type === 'advisory_card' && (
-                <div className="mt-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-3 flex items-start space-x-3 text-green-900 dark:text-green-200">
-                   <ShieldAlert className="w-5 h-5 flex-shrink-0 text-green-500" />
-                   <div className="text-sm font-medium">Agriculture Advisory: Postpone irrigation</div>
-                </div>
-              )}
-              {msg.type === 'forecast_card' && (
-                <div className="mt-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 flex items-center space-x-3 text-blue-900 dark:text-blue-200">
-                   <CloudRain className="w-8 h-8 flex-shrink-0 text-blue-500" />
-                   <div>
-                     <div className="text-sm font-bold">Tomorrow</div>
-                     <div className="text-xs">32°C • Rain Showers (30%)</div>
-                   </div>
-                </div>
-              )}
+      <div className="chat-context-strip" role="note"><WeatherIcon icon={mockWeatherData.icon} condition={mockWeatherData.condition} className="h-5 w-5" /><span><strong>{mockWeatherData.location.city} · {mockWeatherData.currentTemp}°C</strong>{mockWeatherData.condition} · Simulated context</span></div>
 
-              <div className={clsx(
-                "text-[10px] mt-2 opacity-0 group-hover:opacity-100 transition-opacity",
-                msg.role === 'user' ? "text-primary-100 text-right" : "text-slate-400"
-              )}>
-                {msg.timestamp}
-              </div>
+      <div className="chat-history" aria-live="polite" aria-busy={isThinking}>
+        {messages.map((message) => (
+          <article key={message.id} className={cn('chat-message', message.role === 'user' && 'chat-message--user')}>
+            <div className="chat-message__bubble">
+              <p>{message.content}</p>
+              <StructuredResponse message={message} />
+              <footer><time>{message.timestamp}</time>{message.role === 'assistant' && <button type="button" onClick={() => void copyMessage(message)} aria-label="Copy response">{copiedId === message.id ? <Check className="h-3.5 w-3.5" /> : <Clipboard className="h-3.5 w-3.5" />}{copiedId === message.id ? 'Copied' : 'Copy'}</button>}</footer>
             </div>
-          </div>
+          </article>
         ))}
+        {isThinking && <div className="chat-thinking" role="status"><span /><span /><span /><small>WeatherGPT is considering the demo records</small></div>}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Composer */}
-      <div className="p-4 bg-white dark:bg-navy-900 border-t border-slate-100 dark:border-navy-800 z-10">
-        
-        {/* Suggestions */}
-        <div className="flex overflow-x-auto gap-2 pb-3 mb-1 no-scrollbar">
-          {SUGGESTIONS.map((sug, idx) => (
-            <button 
-              key={idx}
-              onClick={() => handleSend(sug)}
-              className="whitespace-nowrap text-xs font-medium bg-slate-100 dark:bg-navy-800 hover:bg-slate-200 dark:hover:bg-navy-700 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-full transition-colors"
-            >
-              {sug}
-            </button>
-          ))}
+      <div className="chat-composer">
+        <div className="chat-suggestions" aria-label="Suggested weather questions">
+          {SUGGESTIONS.map((suggestion) => <button type="button" key={suggestion} onClick={() => sendMessage(suggestion)} disabled={isThinking}>{suggestion}</button>)}
         </div>
-
-        <form 
-          onSubmit={(e) => { e.preventDefault(); handleSend(); }} 
-          className="flex items-center space-x-2 bg-slate-50 dark:bg-navy-950 p-1.5 rounded-2xl border border-slate-200 dark:border-navy-700 focus-within:ring-2 focus-within:ring-primary-500/50 transition-all"
-        >
-          <button 
-            type="button"
-            onClick={toggleListen}
-            className={clsx(
-              "p-3 rounded-xl transition-colors shrink-0",
-              isListening ? "bg-red-100 text-red-600 animate-pulse" : "hover:bg-slate-200 dark:hover:bg-navy-800 text-slate-500"
-            )}
-            title={isListening ? "Listening..." : "Tap to speak"}
-          >
-            {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+        {status && <div className="chat-status" role="status"><span>{status}</span><button type="button" onClick={() => setStatus(null)} aria-label="Dismiss status"><X className="h-4 w-4" /></button></div>}
+        <form onSubmit={(event) => { event.preventDefault(); sendMessage(); }} className="chat-composer__form">
+          <button type="button" className={cn('chat-mic', isListening && 'chat-mic--active')} onClick={toggleListen} aria-label={isListening ? 'Stop listening' : 'Start voice input'} title={isListening ? 'Stop listening' : 'Start voice input'}>
+            {isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
           </button>
-          
-          <input
-            type="text"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder={isListening ? t('listening') + "..." : "Ask me about the weather..."}
-            className="flex-1 bg-transparent border-none outline-none text-slate-800 dark:text-slate-100 placeholder-slate-400 px-2 min-w-0"
-          />
-          
-          <button 
-            type="submit"
-            disabled={!input.trim()}
-            className="bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:hover:bg-primary-600 text-white p-3 rounded-xl transition-colors shrink-0"
-          >
-            <Send className="w-5 h-5" />
-          </button>
+          <label className="sr-only" htmlFor="weather-question">Weather question</label>
+          <input id="weather-question" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={handleInputKeyDown} placeholder={isListening ? `${t('listening')}…` : 'Ask about weather, alerts or advisories…'} autoComplete="off" />
+          <button type="submit" className="chat-send" disabled={!input.trim() || isThinking} aria-label="Send weather question"><Send className="h-5 w-5" /></button>
         </form>
+        <p>Responses use local intent matching and simulated records. No live AI model or stream is connected.</p>
       </div>
-    </div>
+    </section>
   );
 }
