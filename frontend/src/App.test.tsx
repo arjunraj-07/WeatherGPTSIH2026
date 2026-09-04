@@ -23,7 +23,7 @@ describe('WeatherGPT React Application', () => {
     vi.clearAllMocks();
   });
 
-  it('renders without crashing and defaults to light theme', () => {
+  it('renders without crashing and defaults to auto appearance', () => {
     render(<App />);
     expect(document.documentElement.classList.contains('dark')).toBe(false);
   });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isWeatherDaytime, normalizeWeatherScene } from './weather';
+import { isWeatherDaytime, normalizeWeatherScene, getWeatherIconComponent } from './weather';
+import { CloudMoon, CloudSun, Moon, Sun } from 'lucide-react';
 
 describe('weather.ts time and scene logic', () => {
   const mockWeather: any = {
@@ -67,5 +68,12 @@ describe('weather.ts time and scene logic', () => {
     
     expect(isWeatherDaytime(mockWeather, 'night', noon)).toBe(false);
     expect(normalizeWeatherScene({ ...mockWeather, condition: 'Clear', icon: 'Sun' }, 'night', noon)).toBe('clear-night');
+  });
+
+  it('maps weather icons based on daytime correctly', () => {
+    expect(getWeatherIconComponent('Sun', 'Clear', true)).toBe(Sun);
+    expect(getWeatherIconComponent('Sun', 'Clear', false)).toBe(Moon);
+    expect(getWeatherIconComponent('Cloud-Sun', 'Partly Cloudy', true)).toBe(CloudSun);
+    expect(getWeatherIconComponent('Cloud-Sun', 'Partly Cloudy', false)).toBe(CloudMoon);
   });
 });

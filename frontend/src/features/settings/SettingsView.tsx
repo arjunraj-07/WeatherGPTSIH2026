@@ -124,7 +124,7 @@ export default function SettingsView() {
 
       <SettingsSection eyebrow="General" title="Appearance & language" description="Tune the chrome without changing the underlying weather records.">
         <PreferenceRow icon={theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor} title="Appearance" description="Follow the operating system or choose a fixed mode.">
-          <SegmentedControl<ThemeMode> label="Appearance" value={theme} onChange={setTheme} options={[{ value: 'system', label: 'System', icon: Monitor }, { value: 'light', label: 'Light', icon: Sun }, { value: 'dark', label: 'Dark', icon: Moon }]} />
+          <SegmentedControl<ThemeMode> label="Appearance" value={theme} onChange={setTheme} options={[{ value: 'auto', label: 'Auto', icon: CloudSun }, { value: 'system', label: 'System', icon: Monitor }, { value: 'light', label: 'Light', icon: Sun }, { value: 'dark', label: 'Dark', icon: Moon }]} />
         </PreferenceRow>
         <PreferenceRow icon={Languages} title="Language" description="Navigation labels support English, Hindi and Tamil.">
           <div className="language-control">

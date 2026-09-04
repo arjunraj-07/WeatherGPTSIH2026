@@ -13,6 +13,8 @@ export interface WeatherContextValue {
   setSceneOverride: (scene: SceneVariant | 'auto') => void;
   timeOverride: TimeOverride;
   setTimeOverride: (value: TimeOverride) => void;
+  now: Date;
+  isDaytime: boolean;
 }
 
 export const WeatherContext = createContext<WeatherContextValue | null>(null);

@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useLocation } from 'react-router-dom';
 import { useWeather } from '../hooks/useWeather';
 import { usePreferences } from '../hooks/usePreferences';
-import { normalizeWeatherScene, isWeatherDaytime, type SceneVariant } from '../lib/weather';
+import { normalizeWeatherScene, type SceneVariant } from '../lib/weather';
 
 const sceneNames: Record<SceneVariant, string> = {
   'clear-day': 'Clear day',
@@ -156,33 +156,12 @@ function SceneContent({ scene, animate }: { scene: SceneVariant; animate: boolea
 
 function WeatherScene() {
   const location = useLocation();
-  const { weather, sceneOverride, timeOverride } = useWeather();
+  const { weather, sceneOverride, timeOverride, now, isDaytime } = useWeather();
   const { motionIntensity } = usePreferences();
   const { hidden, prefersReduced } = useSceneActivity();
-  const [now, setNow] = useState(new Date());
-
-  useEffect(() => {
-    const handleTimeCheck = () => {
-      if (timeOverride === 'auto') {
-        setNow(new Date());
-      }
-    };
-    
-    // Check immediately if we regain visibility or focus to avoid stale scenes
-    document.addEventListener('visibilitychange', handleTimeCheck);
-    window.addEventListener('focus', handleTimeCheck);
-    
-    const interval = window.setInterval(handleTimeCheck, 60000);
-    return () => {
-      window.clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleTimeCheck);
-      window.removeEventListener('focus', handleTimeCheck);
-    };
-  }, [timeOverride]);
 
   const automaticScene = useMemo(() => normalizeWeatherScene(weather, timeOverride, now), [weather, timeOverride, now]);
   const scene = sceneOverride === 'auto' ? automaticScene : sceneOverride;
-  const isDaytime = useMemo(() => isWeatherDaytime(weather, timeOverride, now), [weather, timeOverride, now]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-weather-phase', isDaytime ? 'day' : 'night');
