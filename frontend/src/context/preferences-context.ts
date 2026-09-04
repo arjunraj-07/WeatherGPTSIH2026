@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 
-export type ThemeMode = 'system' | 'light' | 'dark';
+export type ThemeMode = 'auto' | 'system' | 'light' | 'dark';
 export type MotionIntensity = 'full' | 'subtle' | 'off';
 export type TemperatureUnit = 'c' | 'f';
 export type WindUnit = 'kmh' | 'mph' | 'knots';

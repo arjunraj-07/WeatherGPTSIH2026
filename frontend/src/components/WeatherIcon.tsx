@@ -6,10 +6,11 @@ interface WeatherIconProps {
   condition?: string;
   className?: string;
   label?: string;
+  isDaytime?: boolean;
 }
 
-export default function WeatherIcon({ icon, condition, className = 'h-8 w-8', label }: WeatherIconProps) {
-  const iconComponent = getWeatherIconComponent(icon, condition);
+export default function WeatherIcon({ icon, condition, className = 'h-8 w-8', label, isDaytime }: WeatherIconProps) {
+  const iconComponent = getWeatherIconComponent(icon, condition, isDaytime);
   return createElement(iconComponent, {
     className,
     'aria-hidden': label ? undefined : true,

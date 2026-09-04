@@ -6,6 +6,7 @@ import {
   type ThemeMode,
   type WindUnit,
 } from './preferences-context';
+import { useWeather } from '../hooks/useWeather';
 
 function storedValue<T extends string>(key: string, options: readonly T[], fallback: T): T {
   const value = localStorage.getItem(key) as T | null;
@@ -20,7 +21,7 @@ function storedBoolean(key: string, fallback: boolean) {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeMode>(() =>
-    storedValue('theme', ['system', 'light', 'dark'] as const, 'system'),
+    storedValue('theme', ['auto', 'system', 'light', 'dark'] as const, 'auto'),
   );
   const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [motionIntensity, setMotionState] = useState<MotionIntensity>(() =>
@@ -35,7 +36,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [severeAlerts, setSevereAlertsState] = useState(() => storedBoolean('severe-alerts', true));
   const [dailySummary, setDailySummaryState] = useState(() => storedBoolean('daily-summary', false));
 
-  const isDark = theme === 'dark' || (theme === 'system' && systemDark);
+  const { isDaytime } = useWeather();
+  const isDark = theme === 'dark' || (theme === 'system' && systemDark) || (theme === 'auto' && !isDaytime);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');

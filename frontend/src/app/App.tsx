@@ -27,8 +27,8 @@ function RouteFallback() {
 export default function App() {
   return (
     <I18nextProvider i18n={i18n}>
-      <ThemeProvider>
-        <WeatherProvider>
+      <WeatherProvider>
+        <ThemeProvider>
           <BrowserRouter>
             <Suspense fallback={<RouteFallback />}>
               <Routes>
@@ -47,8 +47,8 @@ export default function App() {
               </Routes>
             </Suspense>
           </BrowserRouter>
-        </WeatherProvider>
-      </ThemeProvider>
+        </ThemeProvider>
+      </WeatherProvider>
     </I18nextProvider>
   );
 }

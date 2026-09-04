@@ -77,7 +77,7 @@ function HomeSkeleton() {
 }
 
 export default function HomeView() {
-  const { weather, isLoading: weatherLoading, error: weatherError, retry: retryWeather } = useWeather();
+  const { weather, isLoading: weatherLoading, error: weatherError, retry: retryWeather, isDaytime } = useWeather();
   const { temperatureUnit, windUnit } = usePreferences();
   const [selectedHour, setSelectedHour] = useState(0);
   const {
@@ -163,7 +163,7 @@ export default function HomeView() {
             <span className="observation-badge">{isDemo ? 'Simulated observation' : 'Current observation'}</span>
           </div>
           <div className="current-weather__condition">
-            <WeatherIcon icon={weather.icon} condition={weather.condition} className="current-weather__icon" label={weather.condition} />
+            <WeatherIcon icon={weather.icon} condition={weather.condition} isDaytime={isDaytime} className="current-weather__icon" label={weather.condition} />
             <div>
               <span>{weather.condition}</span>
               <p>{isDemo ? 'Demo conditions for Chennai' : 'Latest available conditions'}</p>

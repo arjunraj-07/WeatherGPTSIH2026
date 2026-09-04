@@ -117,6 +117,7 @@ export function normalizeWeatherScene(
 export function getWeatherIconComponent(
   icon = '',
   condition = '',
+  isDaytime?: boolean,
 ): ComponentType<{ className?: string; 'aria-hidden'?: boolean; 'aria-label'?: string }> {
   const descriptor = `${icon} ${condition}`.toLowerCase();
   if (/thunder|lightning|storm/.test(descriptor)) return CloudLightning;
@@ -125,11 +126,26 @@ export function getWeatherIconComponent(
   if (/snow|sleet/.test(descriptor)) return Snowflake;
   if (/fog|mist|haze/.test(descriptor)) return CloudFog;
   if (/heat|hot/.test(descriptor)) return ThermometerSun;
-  if (/cloud-moon|partly.*night/.test(descriptor)) return CloudMoon;
-  if (/cloud-sun|partly/.test(descriptor)) return CloudSun;
-  if (/cloud|overcast/.test(descriptor)) return Cloud;
-  if (/moon|night/.test(descriptor)) return Moon;
-  return Sun;
+
+  const isCloudy = /cloud-moon|cloud-sun|partly/.test(descriptor);
+  const isClear = /sun|moon|clear|night/.test(descriptor) && !isCloudy;
+  const isOvercast = /cloud|overcast/.test(descriptor) && !isCloudy;
+
+  if (isCloudy) {
+    if (isDaytime === false) return CloudMoon;
+    if (isDaytime === true) return CloudSun;
+    return /moon|night/.test(descriptor) ? CloudMoon : CloudSun;
+  }
+
+  if (isClear) {
+    if (isDaytime === false) return Moon;
+    if (isDaytime === true) return Sun;
+    return /moon|night/.test(descriptor) ? Moon : Sun;
+  }
+
+  if (isOvercast) return Cloud;
+
+  return isDaytime === false ? Moon : Sun;
 }
 
 export const severityOrder: WeatherAlert['severity'][] = ['Extreme', 'Severe', 'Moderate', 'Minor'];
