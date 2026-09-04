@@ -1,165 +1,174 @@
-import { useEffect, useState, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useMemo, useState } from 'react';
+import useSWR from 'swr';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { AlertTriangle, CalendarRange, Database, RefreshCw, ThermometerSun, TrendingDown, TrendingUp } from 'lucide-react';
 import { ClimateService } from '../../services/api';
 import type { ClimateData } from '../../types/models';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, } from 'recharts';
-import { TrendingUp, TrendingDown, Clock } from 'lucide-react';
+
+interface ClimatePoint {
+  year: string;
+  temp: number;
+}
+
+interface ClimateResult {
+  data: ClimateData;
+  source: 'bundled historical dataset' | 'service fallback';
+}
+
+function isUsableClimateData(data: ClimateData) {
+  return data.labels.length >= 2
+    && data.labels.length === data.historicalTemp.length
+    && data.historicalTemp.every((value) => Number.isFinite(value));
+}
+
+async function loadClimateEvidence(): Promise<ClimateResult> {
+  try {
+    const response = await fetch('/data/india_temperature_1901_2025.json');
+    if (!response.ok) throw new Error('Historical dataset request failed.');
+    const payload: unknown = await response.json();
+    if (!Array.isArray(payload)) throw new Error('Historical dataset has an invalid shape.');
+
+    const points = payload
+      .map((record): ClimatePoint | null => {
+        if (!record || typeof record !== 'object') return null;
+        const item = record as Record<string, unknown>;
+        const year = Number(item.year);
+        const temp = Number(item.annual_temp);
+        if (!Number.isFinite(year) || !Number.isFinite(temp)) return null;
+        return { year: String(Math.trunc(year)), temp };
+      })
+      .filter((point): point is ClimatePoint => point !== null)
+      .sort((a, b) => Number(a.year) - Number(b.year));
+
+    if (points.length < 2) throw new Error('Historical dataset does not contain enough valid records.');
+    return {
+      data: {
+        labels: points.map((point) => point.year),
+        historicalTemp: points.map((point) => point.temp),
+        historicalRainfall: [],
+      },
+      source: 'bundled historical dataset',
+    };
+  } catch {
+    const fallback = await ClimateService.getClimateTrends();
+    if (!isUsableClimateData(fallback)) throw new Error('Climate evidence is unavailable or invalid.');
+    return { data: fallback, source: 'service fallback' };
+  }
+}
+
+function mean(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+}
 
 export default function ClimateView() {
-  const { t } = useTranslation();
-  const [data, setData] = useState<ClimateData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<'50' | 'All'>('All');
+  const { data: result, error, isLoading, mutate } = useSWR('climate-evidence', loadClimateEvidence, { revalidateOnFocus: false });
 
-  useEffect(() => {
-    // In demo mode this just returns mockData, but we can also load the real JSON if we want to show 1901-2025.
-    // For now we will use the mock data as requested, and expand it a bit to show a trend.
-    fetch('/data/india_temperature_1901_2025.json')
-      .then(r => r.json())
-      .then(json => {
-        // Mock API transformation
-        const transformed: ClimateData = {
-          labels: json.map((d: any) => d.YEAR.toString()),
-          historicalTemp: json.map((d: any) => d.ANNUAL),
-          historicalRainfall: [],
-        };
-        setData(transformed);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error(err);
-        ClimateService.getClimateTrends().then(d => {
-          setData(d);
-          setLoading(false);
-        });
-      });
-  }, []);
+  const allPoints = useMemo<ClimatePoint[]>(() => {
+    if (!result) return [];
+    return result.data.labels.map((year, index) => ({ year, temp: result.data.historicalTemp[index] })).filter((point) => Number.isFinite(point.temp));
+  }, [result]);
 
-  const chartData = useMemo(() => {
-    if (!data) return [];
-    
-    let startIndex = 0;
-    if (timeRange === '50' && data.labels.length > 50) {
-      startIndex = data.labels.length - 50;
-    }
+  const chartData = useMemo(() => timeRange === '50' ? allPoints.slice(-50) : allPoints, [allPoints, timeRange]);
 
-    return data.labels.slice(startIndex).map((label, idx) => ({
-      year: label,
-      temp: data.historicalTemp[startIndex + idx]
-    }));
-  }, [data, timeRange]);
-
-  const trend = useMemo(() => {
-    if (!chartData || chartData.length < 2) return { slope: 0, direction: 'flat' };
-    
-    // Simple least squares
+  const evidence = useMemo(() => {
+    if (chartData.length < 2) return null;
     const n = chartData.length;
-    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-    
-    for (let i = 0; i < n; i++) {
-      const x = i; // using index for x to prevent large numbers, slope remains same per year
-      const y = chartData[i].temp;
-      sumX += x;
-      sumY += y;
-      sumXY += x * y;
-      sumX2 += x * x;
-    }
-    
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-    return {
-      slope: slope,
-      direction: slope > 0.005 ? 'up' : slope < -0.005 ? 'down' : 'flat'
-    };
+    let sumX = 0;
+    let sumY = 0;
+    let sumXY = 0;
+    let sumX2 = 0;
+    chartData.forEach((point, index) => {
+      sumX += index;
+      sumY += point.temp;
+      sumXY += index * point.temp;
+      sumX2 += index * index;
+    });
+    const denominator = n * sumX2 - sumX * sumX;
+    const slope = denominator === 0 ? 0 : (n * sumXY - sumX * sumY) / denominator;
+    const warmest = chartData.reduce((current, point) => point.temp > current.temp ? point : current);
+    const coolest = chartData.reduce((current, point) => point.temp < current.temp ? point : current);
+    const firstDecade = chartData.slice(0, Math.min(10, chartData.length));
+    const latestDecade = chartData.slice(-Math.min(10, chartData.length));
+    const decadeShift = mean(latestDecade.map((point) => point.temp)) - mean(firstDecade.map((point) => point.temp));
+    return { slope, warmest, coolest, decadeShift, average: mean(chartData.map((point) => point.temp)) };
   }, [chartData]);
 
-  if (loading) {
+  if (isLoading) {
+    return <div className="climate-skeleton" role="status" aria-label="Loading climate evidence"><div className="skeleton" /><div className="skeleton" /><div className="skeleton" /></div>;
+  }
+
+  if (error || !result || !evidence) {
     return (
-      <div className="animate-pulse space-y-6 max-w-4xl mx-auto">
-        <div className="h-24 bg-slate-200 dark:bg-navy-800 rounded-3xl"></div>
-        <div className="h-96 bg-slate-200 dark:bg-navy-800 rounded-3xl"></div>
+      <div className="climate-view">
+        <header className="page-heading"><div><span className="eyebrow">Long-range evidence</span><h1>India climate trends</h1><p>Annual temperature evidence could not be prepared.</p></div></header>
+        <section className="atmo-panel empty-state" role="alert"><span className="empty-state__icon"><AlertTriangle className="h-7 w-7" /></span><h2>Climate dataset unavailable</h2><p>The bundled file and service fallback did not return usable numeric records.</p><button type="button" className="action-button" onClick={() => void mutate()}><RefreshCw className="h-4 w-4" />Retry dataset</button></section>
       </div>
     );
   }
 
-  return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-10">
-      
-      {/* Header and Controls */}
-      <div className="bg-white dark:bg-navy-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-navy-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold">{t('climate')}</h2>
-          <p className="text-slate-500 dark:text-slate-400">India Annual Mean Temperature</p>
-        </div>
-        
-        <div className="flex bg-slate-100 dark:bg-navy-950 p-1 rounded-xl">
-          <button 
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${timeRange === 'All' ? 'bg-white dark:bg-navy-800 shadow-sm text-primary-600' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
-            onClick={() => setTimeRange('All')}
-          >
-            Full Dataset
-          </button>
-          <button 
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${timeRange === '50' ? 'bg-white dark:bg-navy-800 shadow-sm text-primary-600' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
-            onClick={() => setTimeRange('50')}
-          >
-            Last 50 Years
-          </button>
-        </div>
-      </div>
+  const direction = evidence.slope > 0.0005 ? 'warming' : evidence.slope < -0.0005 ? 'cooling' : 'stable';
+  const firstYear = chartData.at(0)?.year;
+  const lastYear = chartData.at(-1)?.year;
+  const accessibleSummary = `${chartData.length} annual observations from ${firstYear} to ${lastYear}. The least-squares trend is ${evidence.slope.toFixed(3)} degrees Celsius per year. The warmest observation is ${evidence.warmest.temp.toFixed(2)} degrees in ${evidence.warmest.year}.`;
 
-      {/* Trend Summary */}
-      <div className="bg-gradient-to-r from-slate-50 to-white dark:from-navy-900 dark:to-navy-800 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-navy-800 flex items-center space-x-4">
-        <div className={`p-4 rounded-2xl ${trend.direction === 'up' ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : trend.direction === 'down' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600' : 'bg-slate-100 dark:bg-navy-800 text-slate-600'}`}>
-          {trend.direction === 'up' ? <TrendingUp className="w-8 h-8" /> : trend.direction === 'down' ? <TrendingDown className="w-8 h-8" /> : <Clock className="w-8 h-8" />}
+  return (
+    <div className="climate-view">
+      <header className="page-heading climate-heading">
+        <div><span className="eyebrow">Long-range evidence</span><h1>India annual temperature</h1><p>Read the 1901–2025 record as evidence, with every summary derived from the bundled observations.</p></div>
+        <div className="climate-source"><Database className="h-4 w-4" /><span><strong>{chartData.length} records</strong>{result.source}</span></div>
+      </header>
+
+      <section className="climate-lead" aria-label="Calculated temperature trend">
+        <div className="climate-lead__signal">
+          {direction === 'warming' ? <TrendingUp className="h-8 w-8" /> : direction === 'cooling' ? <TrendingDown className="h-8 w-8" /> : <ThermometerSun className="h-8 w-8" />}
         </div>
-        <div>
-          <div className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Observed Trend</div>
-          <div className="text-2xl font-bold flex items-baseline space-x-2">
-            <span>{trend.slope > 0 ? '+' : ''}{trend.slope.toFixed(3)}°C</span>
-            <span className="text-sm text-slate-500 font-normal">/ year</span>
+        <div className="climate-lead__reading"><span>Least-squares trend</span><strong>{evidence.slope >= 0 ? '+' : ''}{evidence.slope.toFixed(3)}°C <small>/ year</small></strong></div>
+        <p>The selected record shows a <strong>{direction}</strong> long-term direction. This is a descriptive trend, not a short-range forecast.</p>
+      </section>
+
+      <section className="climate-chart-panel atmo-panel" aria-labelledby="climate-chart-title">
+        <div className="section-heading">
+          <div><span className="eyebrow">Observed annual mean</span><h2 id="climate-chart-title">{firstYear}—{lastYear}</h2></div>
+          <div className="range-switch" role="group" aria-label="Climate time range">
+            <button type="button" onClick={() => setTimeRange('All')} aria-pressed={timeRange === 'All'}>Full dataset</button>
+            <button type="button" onClick={() => setTimeRange('50')} aria-pressed={timeRange === '50'}>Last 50 years</button>
           </div>
         </div>
-      </div>
+        <p className="sr-only">{accessibleSummary}</p>
+        <div className="climate-chart" role="img" aria-label={accessibleSummary}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 18, right: 12, left: 0, bottom: 4 }}>
+              <CartesianGrid stroke="rgb(var(--color-ink) / 0.09)" strokeDasharray="3 5" vertical={false} />
+              <XAxis dataKey="year" stroke="rgb(var(--color-ink) / 0.46)" fontSize={10} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={32} tickMargin={10} />
+              <YAxis domain={['dataMin - 0.5', 'dataMax + 0.5']} stroke="rgb(var(--color-ink) / 0.46)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value: number) => `${value.toFixed(1)}°`} width={42} />
+              <RechartsTooltip
+                cursor={{ stroke: 'rgb(var(--color-primary) / 0.35)', strokeWidth: 1 }}
+                contentStyle={{ borderRadius: 14, border: '1px solid rgb(var(--color-ink) / 0.12)', background: 'rgb(var(--color-surface))', boxShadow: '0 12px 32px rgb(3 24 33 / 0.14)', fontSize: 12 }}
+                formatter={(value) => [`${Number(value).toFixed(2)}°C`, 'Annual mean']}
+                labelFormatter={(label) => `Year ${label}`}
+              />
+              <Line type="monotone" dataKey="temp" stroke="rgb(var(--color-primary))" strokeWidth={2.5} dot={false} activeDot={{ r: 5, fill: 'rgb(var(--color-sun))', stroke: 'rgb(var(--color-surface))', strokeWidth: 2 }} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <footer className="climate-chart-panel__footer"><span><CalendarRange className="h-4 w-4" />Annual means · no rainfall series inferred</span><small>Source: bundled India temperature dataset</small></footer>
+      </section>
 
-      {/* Chart */}
-      <div className="bg-white dark:bg-navy-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-navy-800 h-[500px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.5} vertical={false} />
-            <XAxis 
-              dataKey="year" 
-              stroke="#94a3b8" 
-              fontSize={12} 
-              tickLine={false} 
-              axisLine={false} 
-              tickMargin={10} 
-            />
-            <YAxis 
-              domain={['auto', 'auto']} 
-              stroke="#94a3b8" 
-              fontSize={12} 
-              tickLine={false} 
-              axisLine={false}
-              tickFormatter={(val) => `${val}°C`}
-              tickMargin={10}
-            />
-            <RechartsTooltip 
-              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-              itemStyle={{ color: '#0ea5e9', fontWeight: 'bold' }}
-              labelStyle={{ color: '#64748b', marginBottom: '4px' }}
-              formatter={(value: any) => [`${value.toFixed(2)}°C`, 'Temperature']}
-            />
-            <Line 
-              type="monotone" 
-              dataKey="temp" 
-              stroke="#0ea5e9" 
-              strokeWidth={3}
-              dot={false}
-              activeDot={{ r: 6, fill: '#0ea5e9', stroke: '#fff', strokeWidth: 2 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      <section className="climate-evidence-grid" aria-label="Derived climate summaries">
+        <article><span>Warmest observation</span><strong>{evidence.warmest.temp.toFixed(2)}°C</strong><small>{evidence.warmest.year}</small></article>
+        <article><span>Coolest observation</span><strong>{evidence.coolest.temp.toFixed(2)}°C</strong><small>{evidence.coolest.year}</small></article>
+        <article><span>Period average</span><strong>{evidence.average.toFixed(2)}°C</strong><small>{chartData.length} annual means</small></article>
+        <article><span>Decade comparison</span><strong>{evidence.decadeShift >= 0 ? '+' : ''}{evidence.decadeShift.toFixed(2)}°C</strong><small>Latest 10 vs earliest 10 years shown</small></article>
+      </section>
     </div>
   );
 }

@@ -30,7 +30,7 @@ export const WeatherService = {
     }
     const params = new URLSearchParams();
     if (city) params.append('city', city);
-    if (lat && lon) {
+    if (lat !== undefined && lon !== undefined) {
       params.append('lat', lat.toString());
       params.append('lon', lon.toString());
     }
@@ -55,7 +55,7 @@ export const AlertService = {
       return mockAlerts;
     }
     const params = new URLSearchParams();
-    if (lat && lon) {
+    if (lat !== undefined && lon !== undefined) {
       params.append('lat', lat.toString());
       params.append('lon', lon.toString());
     }
